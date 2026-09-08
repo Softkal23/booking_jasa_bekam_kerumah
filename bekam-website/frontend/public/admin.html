@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin — BekamCare</title>
+<meta name="robots" content="noindex" />
+<style>
+  body { font-family: system-ui, sans-serif; background: #F3EEE2; margin: 0; color: #1C1A16; }
+  header { background: #1F3A32; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  main { padding: 24px; max-width: 1000px; margin: 0 auto; }
+  .login-box { max-width: 360px; margin: 80px auto; background: #fff; padding: 24px; border-radius: 6px; }
+  .login-box input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
+  .login-box button, table button { background: #8C3B2E; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; }
+  select { padding: 6px; }
+  .error { color: #8C3B2E; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="loginView" class="login-box">
+  <h2>Login Admin</h2>
+  <input id="tokenInput" type="password" placeholder="Admin token" />
+  <button onclick="login()">Masuk</button>
+  <p id="loginError" class="error"></p>
+</div>
+
+<div id="dashboardView" class="hidden">
+  <header>
+    <strong>BekamCare — Dashboard Booking</strong>
+    <button onclick="logout()">Keluar</button>
+  </header>
+  <main>
+    <p id="loadError" class="error"></p>
+    <table id="bookingTable">
+      <thead>
+        <tr>
+          <th>Tanggal</th><th>Jam</th><th>Nama</th><th>HP</th><th>Email</th>
+          <th>Layanan</th><th>Alamat</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="bookingBody"></tbody>
+    </table>
+  </main>
+</div>
+
+<script>
+  const API_URL = "http://localhost:4000/api";
+
+  function getToken() { return sessionStorage.getItem("adminToken") || ""; }
+
+  function login() {
+    const token = document.getElementById("tokenInput").value.trim();
+    sessionStorage.setItem("adminToken", token);
+    loadBookings();
+  }
+
+  function logout() {
+    sessionStorage.removeItem("adminToken");
+    document.getElementById("dashboardView").classList.add("hidden");
+    document.getElementById("loginView").classList.remove("hidden");
+  }
+
+  async function loadBookings() {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/admin/bookings`, {
+        headers: { "X-Admin-Token": token },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("loginError").textContent = data.errors?.[0] || "Token salah.";
+        return;
+      }
+      document.getElementById("loginView").classList.add("hidden");
+      document.getElementById("dashboardView").classList.remove("hidden");
+      renderBookings(data.bookings);
+    } catch (e) {
+      document.getElementById("loginError").textContent = "Tidak bisa terhubung ke server backend.";
+    }
+  }
+
+  function renderBookings(bookings) {
+    const body = document.getElementById("bookingBody");
+    body.innerHTML = "";
+    for (const b of bookings) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${b.booking_date}</td>
+        <td>${b.booking_time}</td>
+        <td>${escapeHtml(b.name)}</td>
+        <td>${escapeHtml(b.phone)}</td>
+        <td>${escapeHtml(b.email)}</td>
+        <td>${escapeHtml(b.service)}</td>
+        <td>${escapeHtml(b.street_address)} ${escapeHtml(b.address_detail || "")}</td>
+        <td>
+          <select data-id="${b.id}">
+            ${["pending","confirmed","completed","cancelled"].map(s =>
+              `<option value="${s}" ${s === b.status ? "selected" : ""}>${s}</option>`
+            ).join("")}
+          </select>
+        </td>
+        <td><button data-id="${b.id}" class="save-btn">Simpan</button></td>
+        <td><button data-id="${b.id}" class="delete-btn" style="background:#555;">Hapus</button></td>
+      `;
+      body.appendChild(tr);
+    }
+    document.querySelectorAll(".save-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const select = document.querySelector(`select[data-id="${id}"]`);
+        await updateStatus(id, select.value);
+      });
+    });
+    document.querySelectorAll(".delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Yakin hapus booking ini? Tidak bisa dibatalkan.")) return;
+        await deleteBooking(btn.dataset.id);
+      });
+    });
+  }
+
+  async function deleteBooking(id) {
+    const token = getToken();
+    await fetch(`${API_URL}/admin/bookings/${id}`, {
+      method: "DELETE",
+      headers: { "X-Admin-Token": token },
+    });
+    loadBookings();
+  }
+
+  async function updateStatus(id, status) {
+    const token = getToken();
+    await fetch(`${API_URL}/admin/bookings/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+      body: JSON.stringify({ status }),
+    });
+    loadBookings();
+  }
+
+  function escapeHtml(str) {
+    return String(str || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  }
+
+  if (getToken()) loadBookings();
+</script>
+</body>
+</html>
